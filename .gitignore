@@ -4,6 +4,9 @@ target/
 !**/src/test/**/target/
 .kotlin
 
+### 本地网关持久化数据目录 ###
+data/
+
 ### IntelliJ IDEA ###
 .idea/modules.xml
 .idea/jarRepositories.xml

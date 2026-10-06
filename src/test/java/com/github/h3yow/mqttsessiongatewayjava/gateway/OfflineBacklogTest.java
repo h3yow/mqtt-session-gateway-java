@@ -106,15 +106,30 @@ class OfflineBacklogTest {
         gateway.subscribe("c1", "t/#", QoS.AT_LEAST_ONCE);
         gateway.subscribe("c2", "t/#", QoS.AT_LEAST_ONCE);
 
-        gateway.publish("t/a", "m1"); // 在途 2（c1、c2 各一）
+        // 本次发布将新增 2 个在途，恰好等于上限：接受，在途严格等于上限
+        gateway.publish("t/a", "m1");
+        assertEquals(2, gateway.inFlightCount());
+        // 再发一条将新增 2 个在途（2+2=4 > 2）：产生任何投递之前整体拒绝
         GatewayException ex = assertThrows(GatewayException.class,
                 () -> gateway.publish("t/b", "m2"));
-        log.info("[backpressure] inFlight={} max=2 -> reason={}", gateway.inFlightCount(), ex.reason());
+        log.info("[backpressure] inFlight={}/2 本次新增=2 -> reason={}（整批拒绝，无部分投递）",
+                gateway.inFlightCount(), ex.reason());
         assertEquals(RejectReason.BACKPRESSURE_LIMIT_EXCEEDED, ex.reason());
+        assertEquals(2, gateway.inFlightCount()); // 被拒发布不产生任何在途
+        assertEquals(1, gateway.pendingAckCount("c1")); // 无部分投递：c1 仍只有 m1
+        assertEquals(1, gateway.pendingAckCount("c2"));
 
-        gateway.ack("c1", 1L); // 确认后释放额度（在途 2 -> 1），可继续发布
-        gateway.publish("t/b", "m2"); // 投递给 c1、c2 两个订阅者（在途 1 -> 3）
-        log.info("[backpressure] after ack+publish inFlight={} (expect 3)", gateway.inFlightCount());
-        assertEquals(3, gateway.inFlightCount());
+        gateway.ack("c1", 1L); // 确认后释放额度（在途 2 -> 1）
+        // 2 个目标仍会新增 2（1+2=3 > 2）：依旧拒绝，不允许投一个留一个
+        ex = assertThrows(GatewayException.class, () -> gateway.publish("t/b", "m2"));
+        assertEquals(RejectReason.BACKPRESSURE_LIMIT_EXCEEDED, ex.reason());
+        log.info("[backpressure] inFlight={}/2 ack 后仍不足 2 个额度 -> reason={}（不投一半）",
+                gateway.inFlightCount(), ex.reason());
+
+        gateway.ack("c2", 1L); // 在途 1 -> 0，额度恢复
+        gateway.publish("t/b", "m2"); // 新增 2，恰好到上限，接受
+        log.info("[backpressure] 额度恢复后发布 inFlight={} (expect 2，严格不超上限)",
+                gateway.inFlightCount());
+        assertEquals(2, gateway.inFlightCount());
     }
 }

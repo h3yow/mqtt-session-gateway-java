@@ -155,7 +155,8 @@ class ConcurrencyTest {
         // 网关其余部分不受影响：其他主题的发布与确认照常
         List<String> routed = gateway.publish("other/x", "ok");
         assertEquals(List.of("fast"), routed);
-        gateway.ack("fast", 3L); // 第 3 条消息（前两条是 busy/a、被拒的 busy/b 未占 id? busy/b 在容量预检前已分配 id=2? 否：预检在 id 分配后）
+        // busy/b 被预检整体拒绝、不分配消息 id；busy/a=id1，other/x=id2
+        gateway.ack("fast", 2L);
         log.info("[slow-client] fast client unaffected, routed={}", routed);
     }
 

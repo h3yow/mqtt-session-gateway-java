@@ -33,6 +33,39 @@ final class Session {
         this.persistent = persistent;
     }
 
+    /**
+     * 从快照恢复持久会话。恢复后的会话一律为离线状态，等待客户端重连。
+     */
+    static Session restore(GatewaySnapshot.SessionSnapshot snapshot) {
+        Session session = new Session(snapshot.clientId(), true);
+        session.online = false;
+        for (GatewaySnapshot.SubscriptionSnapshot sub : snapshot.subscriptions()) {
+            session.subscriptions.put(sub.filter(),
+                    new Subscription(snapshot.clientId(), TopicFilter.parse(sub.filter()), sub.qos()));
+        }
+        for (GatewaySnapshot.BacklogEntrySnapshot entry : snapshot.backlog()) {
+            session.backlog.add(new BacklogEntry(entry.message(), entry.qos()));
+        }
+        for (Message m : snapshot.pendingAck()) {
+            session.pendingAck.put(m.id(), m);
+        }
+        return session;
+    }
+
+    /** 导出持久会话快照（订阅、离线积压、未确认消息、已确认记录由 Gateway 另行收集）。 */
+    GatewaySnapshot.SessionSnapshot toSnapshot(java.util.List<Long> ackedIds) {
+        List<GatewaySnapshot.SubscriptionSnapshot> subs = new ArrayList<>();
+        for (Subscription sub : subscriptions.values()) {
+            subs.add(new GatewaySnapshot.SubscriptionSnapshot(sub.filter().raw(), sub.qos()));
+        }
+        List<GatewaySnapshot.BacklogEntrySnapshot> backlogSnapshot = new ArrayList<>();
+        for (BacklogEntry entry : backlog) {
+            backlogSnapshot.add(new GatewaySnapshot.BacklogEntrySnapshot(entry.message(), entry.qos()));
+        }
+        return new GatewaySnapshot.SessionSnapshot(clientId, subs, backlogSnapshot,
+                new ArrayList<>(pendingAck.values()), new ArrayList<>(ackedIds));
+    }
+
     String clientId() {
         return clientId;
     }

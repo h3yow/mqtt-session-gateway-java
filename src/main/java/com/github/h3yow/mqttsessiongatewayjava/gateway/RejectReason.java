@@ -21,5 +21,7 @@ public enum RejectReason {
     /** 积压队列超过容量上限。 */
     BACKLOG_CAPACITY_EXCEEDED,
     /** 背压触发：网关在途消息超过上限，发布被限流。 */
-    BACKPRESSURE_LIMIT_EXCEEDED
+    BACKPRESSURE_LIMIT_EXCEEDED,
+    /** 本地持久化读写失败（数据目录不可用、快照损坏等）。 */
+    PERSISTENCE_IO_ERROR
 }
