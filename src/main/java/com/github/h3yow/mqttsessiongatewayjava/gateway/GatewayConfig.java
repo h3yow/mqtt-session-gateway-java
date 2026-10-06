@@ -14,6 +14,9 @@ public class GatewayConfig {
     /** 全网关在途（已投递待确认）消息上限，超过即限流（BACKPRESSURE_LIMIT_EXCEEDED）。 */
     private int maxInFlight = 10000;
 
+    /** 本地数据目录；为空时网关为纯内存模式（进程重启不恢复）。 */
+    private String dataDir = "";
+
     public int getBacklogCapacity() {
         return backlogCapacity;
     }
@@ -28,5 +31,13 @@ public class GatewayConfig {
 
     public void setMaxInFlight(int maxInFlight) {
         this.maxInFlight = maxInFlight;
+    }
+
+    public String getDataDir() {
+        return dataDir;
+    }
+
+    public void setDataDir(String dataDir) {
+        this.dataDir = dataDir;
     }
 }

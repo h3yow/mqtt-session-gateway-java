@@ -11,7 +11,7 @@ import org.springframework.context.annotation.Configuration;
 @EnableConfigurationProperties(GatewayConfig.class)
 public class GatewayBeanConfig {
 
-    @Bean
+    @Bean(destroyMethod = "close")
     public Gateway gateway(GatewayConfig config) {
         return new Gateway(config);
     }

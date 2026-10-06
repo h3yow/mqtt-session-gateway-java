@@ -61,9 +61,9 @@ class OfflineBacklogTest {
     }
 
     @Test
-    void persistentSessionSurvivesGatewayRestartEquivalent() {
-        // 网关重启等价于所有会话掉线；持久会话状态保存在会话存储中，
-        // 这里用同一 Gateway 上的 断开-重连 模拟（进程内会话存储即持久层）。
+    void persistentSessionRedeliversQos0BacklogOnReconnect() {
+        // 同进程内断开-重连：持久会话的至多一次离线积压也会补投，但补投即完成、不需确认。
+        // 真正的跨进程重启恢复见 RestartRecoveryTest。
         Gateway gateway = new Gateway(new GatewayConfig());
         gateway.connect("dev1", true);
         gateway.subscribe("dev1", "t/#", QoS.AT_MOST_ONCE);
@@ -106,15 +106,28 @@ class OfflineBacklogTest {
         gateway.subscribe("c1", "t/#", QoS.AT_LEAST_ONCE);
         gateway.subscribe("c2", "t/#", QoS.AT_LEAST_ONCE);
 
-        gateway.publish("t/a", "m1"); // 在途 2（c1、c2 各一）
+        gateway.publish("t/a", "m1"); // 在途 2（c1、c2 各一），已达上限
         GatewayException ex = assertThrows(GatewayException.class,
                 () -> gateway.publish("t/b", "m2"));
         log.info("[backpressure] inFlight={} max=2 -> reason={}", gateway.inFlightCount(), ex.reason());
         assertEquals(RejectReason.BACKPRESSURE_LIMIT_EXCEEDED, ex.reason());
+        assertEquals(2, gateway.inFlightCount()); // 被拒发布不产生任何投递
 
-        gateway.ack("c1", 1L); // 确认后释放额度（在途 2 -> 1），可继续发布
-        gateway.publish("t/b", "m2"); // 投递给 c1、c2 两个订阅者（在途 1 -> 3）
-        log.info("[backpressure] after ack+publish inFlight={} (expect 3)", gateway.inFlightCount());
-        assertEquals(3, gateway.inFlightCount());
+        gateway.ack("c1", 1L); // 确认后释放额度（在途 2 -> 1）
+        // 再发一条：若同时投给 c1、c2，在途将变为 1+2=3 > 2，必须整体拒绝，
+        // 不允许投一半（c1）留一半，也不允许实际在途超过上限
+        ex = assertThrows(GatewayException.class, () -> gateway.publish("t/b", "m2"));
+        log.info("[backpressure] inFlight={} max=2 would-become=3 -> reason={} (严格上限，不部分投递)",
+                gateway.inFlightCount(), ex.reason());
+        assertEquals(RejectReason.BACKPRESSURE_LIMIT_EXCEEDED, ex.reason());
+        assertEquals(1, gateway.inFlightCount());
+
+        // c2 也确认，在途 1 -> 0；再发布给两个目标，在途 0 -> 2，恰好等于上限，发布应被接受
+        gateway.ack("c2", 1L);
+        List<String> routed = gateway.publish("t/b", "m2");
+        log.info("[backpressure] after both acks publish routed={} inFlight={} (expect [c1,c2], 2: 恰好等于上限可接受)",
+                routed, gateway.inFlightCount());
+        assertEquals(List.of("c1", "c2"), routed);
+        assertEquals(2, gateway.inFlightCount());
     }
 }

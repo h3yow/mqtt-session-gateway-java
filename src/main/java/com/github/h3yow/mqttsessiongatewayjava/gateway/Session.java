@@ -5,6 +5,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.github.h3yow.mqttsessiongatewayjava.gateway.persist.StoredState;
+
 /**
  * 客户端会话：连接状态、订阅集合、离线积压与待确认消息。
  * 仅由 Gateway 在持锁状态下访问，自身不做并发控制。
@@ -31,6 +33,28 @@ final class Session {
     Session(String clientId, boolean persistent) {
         this.clientId = clientId;
         this.persistent = persistent;
+    }
+
+    /** 从持久化快照恢复：一律为离线状态，等待客户端重连。 */
+    static Session restore(StoredState.StoredSession stored) {
+        Session session = new Session(stored.clientId(), true);
+        session.online = false;
+        for (StoredState.StoredSubscription sub : stored.subscriptions()) {
+            session.subscriptions.put(sub.filter(),
+                    new Subscription(stored.clientId(), TopicFilter.parse(sub.filter()),
+                            QoS.valueOf(sub.qos())));
+        }
+        for (StoredState.StoredBacklogEntry entry : stored.backlog()) {
+            session.backlog.add(new BacklogEntry(toMessage(entry.message()), QoS.valueOf(entry.qos())));
+        }
+        for (StoredState.StoredMessage msg : stored.pendingAck()) {
+            session.pendingAck.put(msg.id(), toMessage(msg));
+        }
+        return session;
+    }
+
+    private static Message toMessage(StoredState.StoredMessage m) {
+        return new Message(m.id(), m.topic(), m.payload());
     }
 
     String clientId() {
@@ -80,6 +104,21 @@ final class Session {
 
     /** 重连上线：收集需重投的未确认消息（仍保留在待确认集合中）。 */
     List<Message> pendingForRedelivery() {
+        return List.copyOf(pendingAck.values());
+    }
+
+    /** 快照用：积压条目（含协商 QoS）。 */
+    List<BacklogEntry> backlogEntries() {
+        return List.copyOf(backlog);
+    }
+
+    /** 快照用：待确认消息。 */
+    List<Message> pendingMessages() {
+        return List.copyOf(pendingAck.values());
+    }
+
+    /** 恢复在途集合用：重启后待确认消息仍属在途。 */
+    List<Message> allMessagesForInFlight() {
         return List.copyOf(pendingAck.values());
     }
 
